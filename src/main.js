@@ -22,6 +22,7 @@ const state = {
   draft: null,
   dirty: false,
   saveStatus: 'saved',
+  createDialog: { open: false, title: '', subtitle: '', error: '' },
   imageCache: new Map(),
   dataPath: ''
 };
@@ -238,12 +239,28 @@ async function copyText(text, message) {
   toast(message);
 }
 
-async function createCharacter() {
-  const title = window.prompt('Character title', 'New Character');
-  if (title === null) return;
-  const character = defaultCharacter(title.trim() || 'Untitled Character');
-  state.characters.unshift(character);
-  await saveAll('Character created');
+function openCreateDialog() {
+  state.createDialog = { open: true, title: '', subtitle: '', error: '' };
+  render().then(() => $('#new-character-title')?.focus());
+}
+
+function closeCreateDialog() {
+  state.createDialog = { open: false, title: '', subtitle: '', error: '' };
+  render();
+}
+
+async function createCharacterFromDialog() {
+  const title = state.createDialog.title.trim();
+  const subtitle = state.createDialog.subtitle.trim();
+  if (!title) {
+    state.createDialog.error = 'Title is required.';
+    render().then(() => $('#new-character-title')?.focus());
+    return;
+  }
+  const character = { ...defaultCharacter(title), subtitle };
+  const nextCharacters = [character, ...state.characters];
+  await persistCharacters(nextCharacters, 'Character created');
+  state.createDialog = { open: false, title: '', subtitle: '', error: '' };
   openEditor(character.id);
 }
 
@@ -405,9 +422,9 @@ async function renderCards() {
             <span>${character.gallery.length} images</span>
           </div>
           <div class="card-actions">
-            <button class="icon-button" data-action="copy-system" data-id="${character.id}" title="Copy system prompt" aria-label="Copy system prompt">⧉</button>
-            <button class="icon-button" data-action="duplicate" data-id="${character.id}" title="Duplicate character" aria-label="Duplicate character">⎘</button>
-            <button class="icon-button quiet" data-action="archive" data-id="${character.id}" title="${character.archived ? 'Restore character' : 'Archive character'}" aria-label="${character.archived ? 'Restore character' : 'Archive character'}">${character.archived ? '↥' : '↓'}</button>
+            <button class="card-action-button" data-action="copy-system" data-id="${character.id}" title="Copy system prompt" aria-label="Copy system prompt"><span>⧉</span><em>Copy</em></button>
+            <button class="card-action-button" data-action="duplicate" data-id="${character.id}" title="Duplicate character" aria-label="Duplicate character"><span>⎘</span><em>Duplicate</em></button>
+            <button class="card-action-button quiet" data-action="archive" data-id="${character.id}" title="${character.archived ? 'Restore character' : 'Archive character'}" aria-label="${character.archived ? 'Restore character' : 'Archive character'}"><span>${character.archived ? '↥' : '↓'}</span><em>${character.archived ? 'Restore' : 'Archive'}</em></button>
           </div>
         </div>
       </article>
@@ -415,7 +432,19 @@ async function renderCards() {
   }));
 
   if (!state.characters.length) {
-    return `<section class="empty-state"><h2>No characters yet</h2><p>Create your first roleplay character and keep everything private on your device.</p><button class="primary" data-action="create">Create Character</button></section>`;
+    return `
+      <section class="empty-state">
+        <div class="empty-mark">CK</div>
+        <h2>No characters yet</h2>
+        <p>Create your first roleplay character and keep everything private on your device.</p>
+        <ul class="empty-help">
+          <li>Only the title is required.</li>
+          <li>Prompts, notes, scenes, and tags stay local.</li>
+          <li>Images are copied into CharacterKeep's app data folder.</li>
+        </ul>
+        <button class="primary" data-action="create">Create Character</button>
+      </section>
+    `;
   }
   if (!items.length) {
     return `<section class="empty-state"><h2>No matching characters</h2><p>Try changing your search or clearing filters.</p><button data-action="clear-filters">Clear Filters</button></section>`;
@@ -493,8 +522,8 @@ function settingsView() {
   `;
 }
 
-function editorSection(title, body) {
-  return `<section class="editor-section"><h2>${title}</h2>${body}</section>`;
+function editorSection(title, body, className = '') {
+  return `<section class="editor-section ${className}"><h2>${title}</h2>${body}</section>`;
 }
 
 function renderChipEditor(kind, items) {
@@ -573,18 +602,18 @@ async function editorView() {
                 `).join('')}
               </div>
               <button data-action="add-scene">Add Scene</button>
-            `)}
+            `, 'scenes-section')}
             ${editorSection('Notes', `
               <label>Private Notes<textarea class="medium" data-field="notes">${escapeHtml(c.notes)}</textarea></label>
               <label>Settings Notes<textarea class="medium" data-field="settingsNotes">${escapeHtml(c.settingsNotes)}</textarea></label>
-            `)}
+            `, 'notes-section')}
           </div>
           <div class="editor-column">
             ${editorSection('Prompt', `
               <label>System Prompt<textarea class="large" data-field="systemPrompt">${escapeHtml(c.systemPrompt)}</textarea></label>
               <label>Author's Note<textarea class="medium" data-field="authorsNote">${escapeHtml(c.authorsNote)}</textarea></label>
               <button data-action="copy-system" data-id="${c.id}">Copy System Prompt</button>
-            `)}
+            `, 'prompt-section')}
             ${editorSection('Gallery', `
               <div class="button-row"><button data-action="add-image">Add Images</button></div>
               <div class="gallery-grid">${gallery.join('')}</div>
@@ -592,6 +621,32 @@ async function editorView() {
           </div>
         </div>
       </main>
+    </div>
+  `;
+}
+
+function createCharacterDialog() {
+  if (!state.createDialog.open) return '';
+  return `
+    <div class="modal-backdrop" data-action="create-cancel">
+      <section class="create-dialog" role="dialog" aria-modal="true" aria-labelledby="create-dialog-title">
+        <div class="dialog-heading">
+          <p class="eyebrow">New character</p>
+          <h2 id="create-dialog-title">Create Character</h2>
+          <p>Start with the name. Everything else can be filled in once the editor opens.</p>
+        </div>
+        <label><span class="field-label">Title</span>
+          <input id="new-character-title" data-create-field="title" value="${escapeHtml(state.createDialog.title)}" placeholder="Character name" aria-invalid="${state.createDialog.error ? 'true' : 'false'}" />
+        </label>
+        <label><span class="field-label">Subtitle <span class="optional">Optional</span></span>
+          <input data-create-field="subtitle" value="${escapeHtml(state.createDialog.subtitle)}" placeholder="Short description or role" />
+        </label>
+        ${state.createDialog.error ? `<p class="form-error">${escapeHtml(state.createDialog.error)}</p>` : ''}
+        <div class="dialog-actions">
+          <button data-action="create-cancel">Cancel</button>
+          <button class="primary" data-action="create-submit">Create Character</button>
+        </div>
+      </section>
     </div>
   `;
 }
@@ -608,6 +663,7 @@ async function render() {
     </aside>
     ${state.view === 'settings' ? settingsView() : await renderCharactersView()}
     ${state.draft ? await editorView() : ''}
+    ${createCharacterDialog()}
   `;
 }
 
@@ -638,6 +694,12 @@ function bindEvents() {
       if (image) image[target.dataset.galleryField] = target.value;
       markDraftDirty();
     }
+    if (target.dataset.createField) {
+      state.createDialog[target.dataset.createField] = target.value;
+      if (target.dataset.createField === 'title' && target.value.trim()) {
+        state.createDialog.error = '';
+      }
+    }
   });
 
   document.addEventListener('change', async (event) => {
@@ -662,6 +724,15 @@ function bindEvents() {
   });
 
   document.addEventListener('keydown', async (event) => {
+    if (event.key === 'Escape' && state.createDialog.open) {
+      closeCreateDialog();
+      return;
+    }
+    if (event.key === 'Enter' && state.createDialog.open && event.target?.id === 'new-character-title') {
+      event.preventDefault();
+      await createCharacterFromDialog();
+      return;
+    }
     if (event.key === 'Escape' && state.draft) await closeEditor();
     if (event.key === 'Enter' && event.target.closest('.character-card')) openEditor(event.target.closest('.character-card').dataset.id);
   });
@@ -678,7 +749,9 @@ function bindEvents() {
     if (!action) return;
     event.stopPropagation();
 
-    if (action === 'create') await createCharacter();
+    if (action === 'create') openCreateDialog();
+    if (action === 'create-cancel') closeCreateDialog();
+    if (action === 'create-submit') await createCharacterFromDialog();
     if (action === 'open-editor') openEditor(button.dataset.id);
     if (action === 'close-editor') await closeEditor();
     if (action === 'save-draft') await saveDraft();

@@ -122,11 +122,11 @@ textarea {
 }
 
 textarea.large {
-  min-height: 260px;
+  min-height: 360px;
 }
 
 textarea.medium {
-  min-height: 170px;
+  min-height: 190px;
 }
 
 label {
@@ -396,11 +396,32 @@ h2 {
   margin-top: 14px;
 }
 
+.icon-button,
+.card-action-button {
+  min-width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .icon-button {
   width: 38px;
   padding: 0;
-  display: grid;
-  place-items: center;
+}
+
+.card-action-button {
+  gap: 7px;
+  padding: 0 11px;
+}
+
+.card-action-button span {
+  font-size: 0.95rem;
+}
+
+.card-action-button em {
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .empty-state {
@@ -420,6 +441,42 @@ h2 {
 .empty-state p {
   max-width: 420px;
   color: var(--muted);
+}
+
+.empty-mark {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 16px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.36), transparent 1.4rem),
+    linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #171814;
+  font-weight: 900;
+}
+
+.empty-help {
+  display: grid;
+  gap: 7px;
+  max-width: 430px;
+  margin: 0 0 20px;
+  padding: 0;
+  color: var(--muted);
+  list-style: none;
+  font-size: 0.92rem;
+}
+
+.empty-help li::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent-2);
+  vertical-align: 0.08rem;
 }
 
 .settings-grid {
@@ -466,7 +523,7 @@ h2 {
   top: 0;
   z-index: 5;
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr) minmax(430px, auto);
+  grid-template-columns: 86px minmax(0, 1fr) minmax(500px, auto);
   gap: 16px;
   align-items: center;
   padding: 18px;
@@ -543,7 +600,7 @@ h2 {
 
 .editor-actions {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   max-width: none;
@@ -551,7 +608,7 @@ h2 {
 
 .editor-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.82fr) minmax(440px, 1.18fr);
+  grid-template-columns: minmax(300px, 0.78fr) minmax(520px, 1.22fr);
   gap: 16px;
   align-items: start;
   padding: 18px;
@@ -568,6 +625,27 @@ h2 {
   gap: 14px;
   align-content: start;
   align-self: start;
+}
+
+.prompt-section {
+  gap: 18px;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+}
+
+.prompt-section h2 {
+  font-size: 1.22rem;
+}
+
+.prompt-section label {
+  font-size: 0.94rem;
+}
+
+.notes-section textarea {
+  line-height: 1.6;
+}
+
+.scenes-section {
+  gap: 16px;
 }
 
 .checkbox {
@@ -597,7 +675,7 @@ h2 {
 .scene,
 .gallery-item {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
@@ -605,7 +683,8 @@ h2 {
 }
 
 .scene textarea {
-  min-height: 160px;
+  min-height: 190px;
+  line-height: 1.58;
 }
 
 .gallery-grid {
@@ -639,6 +718,72 @@ h2 {
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.45;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(18px);
+}
+
+.create-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(520px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 16rem),
+    var(--panel);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+
+.dialog-heading {
+  display: grid;
+  gap: 7px;
+}
+
+.dialog-heading h2 {
+  margin: 0;
+  font-size: 1.55rem;
+}
+
+.dialog-heading p:last-child {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.optional {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.form-error {
+  margin: -2px 0 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
 }
 
 .gallery-item textarea {
@@ -739,7 +884,6 @@ h2 {
   }
 
   .editor-actions {
-    flex-wrap: wrap;
     justify-content: flex-start;
   }
 
@@ -783,5 +927,10 @@ h2 {
 
   .editor-actions button {
     flex: 1 1 auto;
+  }
+
+  .dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 }
