@@ -14,7 +14,7 @@ Legend:
 - `[x]` ArtifactKeep sibling project inspected at `/Users/matt/artifactkeep-app`.
 - `[x]` Reuse audit written at `docs/artifactkeep-reuse-audit.md`.
 - `[x]` Manual packaged-app QA checklist written at `docs/v1-manual-qa-checklist.md`.
-- `[x]` Partial v1 QA results written at `docs/v1-manual-qa-results.md`.
+- `[~]` Packaged-app QA results written at `docs/v1-manual-qa-results.md`; core create/edit/persistence/archive/data-folder flows passed, native file-dialog flows still need manual hands-on testing.
 - `[x]` Tauri 2 app scaffold added for CharacterKeep.
 - `[x]` Vanilla HTML/CSS/JS frontend implemented.
 - `[x]` Rust backend commands implemented for local JSON, image copy/thumbnail, backup, restore, and data folder access.
@@ -22,13 +22,13 @@ Legend:
 - `[x]` UI was visually inspected with Playwright screenshots and refined afterward.
 - `[x]` V1 stabilization pass added dynamic save status, archive-first card behavior, restore merge tests, improved missing-image UI, and CharacterKeep-specific icon assets.
 - `[x]` V1 experience polish pass replaced native prompt creation with an in-app dialog, improved writing layout, clarified card actions, and refreshed screenshots.
-- `[~]` Main v1 product workflow is implemented, but not every item in this plan is fully manually tested in the packaged desktop app.
+- `[~]` Main v1 product workflow is implemented, and core packaged-app flows were tested, but gallery import and backup/restore still need native file-dialog QA.
 
 ### Next Recommended Pass
 
-- Run the full manual packaged-app QA checklist on macOS with real image files and real backup ZIPs.
+- Finish the manual packaged-app QA items blocked by native file dialogs: real image import, backup ZIP creation, restore ZIP selection, damaged backup restore, invalid manifest restore, and Ko-fi external link.
 - Add automated browser tests for the main frontend workflows: create, edit/save, unsaved close, archive/unarchive, and gallery missing-image UI.
-- Complete packaged-app QA result recording for native image import, backup, restore, external links, and data folder operations.
+- Add a hands-on QA note for the duplicate installed app risk: `/Applications/CharacterKeep.app` may not be the same build as the repo bundle.
 - Add a small release checklist covering signed/notarized builds, icon review, and smoke testing from a clean app data directory.
 - Improve keyboard and screen-reader accessibility after the manual QA results are known.
 
@@ -190,7 +190,7 @@ Legend:
 - `[x]` `npm run tauri -- build` passed.
 - `[x]` Playwright screenshots captured for desktop home, desktop editor, and mobile home.
 - `[x]` Automated Rust restore merge tests cover skip, conflict copy, duplicate-content skip, missing media, unknown fields, invalid manifest, and preserve-existing-data behavior.
-- `[~]` Partial QA results are documented, but packaged-app testing is still incomplete for real image import, persistence after restart, backup/restore into populated data, conflict restore, and missing-media restore.
+- `[~]` Packaged-app QA confirmed clean first launch, create/edit/save/reopen persistence, duplicate without media, archive/unarchive, Open Data Folder, and basic keyboard/card behavior. Native image import, backup/restore ZIP flows, Ko-fi external open, and media cleanup still need hands-on testing.
 
 ### Known Not Done / Follow-Up Items
 
@@ -200,7 +200,7 @@ Legend:
 - `[ ]` Editable notes per compatible model.
 - `[ ]` Autosave, if wanted after v1 manual QA.
 - `[ ]` Formal accessibility pass.
-- `[ ]` Run and record full manual packaged-app test checklist results.
+- `[~]` Run and record full manual packaged-app test checklist results. Core app flows are recorded; native file-dialog and media lifecycle items remain.
 
 You are helping me build a new local-first Tauri 2 desktop app for managing roleplay characters.
 The app should be a polished, delightful, premium-feeling, offline-only character vault. It should let users create, edit, organize, duplicate, search, back up, restore, and copy roleplay character data. All data must live locally on the user’s machine inside the app data directory. There should be no cloud sync, no backend, no telemetry, and no required account.
