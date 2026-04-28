@@ -1,6 +1,187 @@
 
 
 # Build a Local-First Tauri 2 Roleplay Character Vault App
+
+## Implementation Status - Updated 2026-04-28
+
+Legend:
+- `[x]` Done
+- `[~]` Partially done / needs more verification or polish
+- `[ ]` Not done
+
+### Overall Status
+
+- `[x]` ArtifactKeep sibling project inspected at `/Users/matt/artifactkeep-app`.
+- `[x]` Reuse audit written at `docs/artifactkeep-reuse-audit.md`.
+- `[x]` Tauri 2 app scaffold added for CharacterKeep.
+- `[x]` Vanilla HTML/CSS/JS frontend implemented.
+- `[x]` Rust backend commands implemented for local JSON, image copy/thumbnail, backup, restore, and data folder access.
+- `[x]` App builds successfully with `npm run tauri -- build`.
+- `[x]` UI was visually inspected with Playwright screenshots and refined afterward.
+- `[~]` Main v1 product workflow is implemented, but not every item in this plan is fully complete or manually tested in the packaged desktop app.
+
+### Product Vision Status
+
+- `[x]` Create roleplay characters.
+- `[x]` Store main system prompt.
+- `[x]` Store author's notes.
+- `[x]` Store private notes.
+- `[x]` Add one or more starter scenes / scene ideas.
+- `[x]` Add tags.
+- `[x]` Track compatible models by name.
+- `[~]` Compatible model notes exist in schema/backend data, but there is no dedicated UI to edit notes per model.
+- `[x]` Store settings notes.
+- `[x]` Add preview image via gallery cover selection.
+- `[x]` Add a gallery of images per character.
+- `[x]` Search and filter characters.
+- `[x]` Copy useful prompt text quickly.
+- `[x]` Duplicate a full character to create variants.
+- `[x]` Safely delete characters with confirmation.
+- `[x]` Export a full app backup as a zip.
+- `[x]` Restore from a backup zip in a merge-safe way.
+- `[x]` Switch between system, light, and dark theme.
+- `[x]` Donate via Ko-fi link.
+- `[x]` Local-only app data; no account, cloud sync, backend, or telemetry added.
+
+### Data And Storage Status
+
+- `[x]` Character schema implemented with `schemaVersion`, `type`, title/subtitle, prompt fields, scenes, tags, compatible models, settings notes, gallery, favorite, archived, timestamps, and `extensions`.
+- `[x]` Title validation implemented in the editor save flow.
+- `[x]` Local storage uses Tauri app data directory.
+- `[x]` Character data stored in `data/characters.json`.
+- `[x]` Settings stored in `data/settings.json`.
+- `[x]` Images copied into `media/characters/<character-id>/originals/`.
+- `[x]` Thumbnails generated into `media/characters/<character-id>/thumbnails/`.
+- `[x]` Images are stored as files, not base64 in JSON.
+- `[x]` Imported images do not depend on the original source path.
+- `[~]` Gallery image records keep `originalPath`, but it is the local app-data path, not a dependency on the external source file.
+- `[~]` Storage layout is close to the preferred plan, but app-data root is whatever Tauri resolves for the app rather than an extra nested `characterkeep/` folder.
+
+### Main Screens Status
+
+- `[x]` Character grid/home screen.
+- `[x]` Character cards with preview placeholder/image, title, subtitle, tags, compatible models, edited date, scene count, gallery count, favorite indicator, and quick actions.
+- `[x]` Card quick copy copies system prompt.
+- `[x]` Card duplicate duplicates character data and local media files.
+- `[x]` Card delete requires confirmation and deletes local media directory.
+- `[x]` Clicking a card opens the character editor.
+- `[x]` Search input.
+- `[x]` New Character button.
+- `[ ]` Single-character import button is not implemented.
+- `[x]` Settings navigation.
+- `[ ]` View toggle/list view is not implemented.
+- `[x]` Sort controls.
+- `[x]` Filter controls.
+- `[x]` Search includes title, subtitle, prompt, author's note, notes, scene title/body, tags, compatible models, and settings notes.
+- `[x]` Filters include favorites, archived, tags, compatible model, has gallery images, and has scenes.
+- `[x]` Sort includes recently edited, recently created, A-Z, Z-A, and favorites first.
+- `[x]` Empty state implemented.
+- `[x]` No-results state implemented.
+
+### Character Detail / Editor Status
+
+- `[x]` Full-screen editor experience implemented.
+- `[x]` Header includes preview/avatar, title field, subtitle field, favorite toggle, copy full button, save button, duplicate button, delete button, and close button.
+- `[~]` Save status exists as static helper text; it does not dynamically show Saved/Saving/Unsaved.
+- `[~]` Content is organized into sections rather than literal tabs.
+- `[x]` Title field required.
+- `[x]` Subtitle field.
+- `[x]` Preview image via gallery cover.
+- `[x]` Large system prompt textarea.
+- `[x]` Author's note textarea.
+- `[x]` Private notes textarea.
+- `[x]` Scenes can be added, edited, copied, duplicated, and deleted with confirmation.
+- `[ ]` Scene reordering is not implemented.
+- `[x]` Tags chip input.
+- `[x]` Compatible model chip input.
+- `[~]` Compatible model notes per model are not editable in the UI.
+- `[x]` Settings notes textarea.
+- `[x]` Gallery image add, thumbnail display, lightbox, set cover, remove image, caption, and notes fields.
+- `[x]` Manual Save implemented.
+- `[~]` Unsaved-change protection exists on editor close/Escape; there is no autosave.
+
+### Copy / Duplicate / Delete Status
+
+- `[x]` Copy system prompt implemented.
+- `[x]` Copy assembled full character prompt implemented in detail view.
+- `[x]` Toasts shown after copy.
+- `[x]` Character duplication assigns new character, scene, tag, model, and gallery IDs.
+- `[x]` Duplicate title becomes `Original Title Copy`.
+- `[x]` Duplicate copies local gallery image files when running in Tauri.
+- `[x]` Delete confirmation names the character.
+- `[x]` Delete removes character from JSON and removes local media directory.
+- `[ ]` Archive-first delete flow is not implemented; archive exists as a filter/editable flag only.
+
+### Settings Status
+
+- `[x]` Settings screen implemented.
+- `[x]` Theme options: System, Light, Dark.
+- `[x]` Local data location display.
+- `[x]` Open Data Folder button.
+- `[x]` Create Full Backup button.
+- `[x]` Restore From Backup button.
+- `[x]` Ko-fi donate button opens externally in Tauri.
+- `[x]` Privacy note included.
+
+### Backup / Restore Status
+
+- `[x]` Full app backup zip implemented.
+- `[x]` Native save dialog used in desktop app.
+- `[x]` Backup includes manifest, settings, per-character JSON, and media.
+- `[x]` Backup file name suggestion uses `characterkeep-backup-YYYY-MM-DD.zip`.
+- `[x]` Restore from backup zip implemented.
+- `[x]` Native file picker used in desktop app.
+- `[x]` Manifest validation implemented.
+- `[x]` Restore merges without wiping existing local data.
+- `[x]` Same content hash is skipped.
+- `[x]` Same ID with different content imports as conflict copy with new IDs.
+- `[x]` Different ID with same content hash is skipped.
+- `[~]` Missing media is counted in restore summary, but this needs deeper manual testing with intentionally damaged backups.
+- `[~]` Unknown fields are generally preserved because character JSON is handled as `serde_json::Value`, but there is no explicit migration test suite yet.
+- `[x]` Restore summary returns imported/skipped/conflicts/media/missing counts and is shown via toast.
+- `[ ]` Destructive overwrite restore mode is not implemented, by design.
+
+### Optional Import / Export Status
+
+- `[ ]` Single character JSON export is not implemented.
+- `[ ]` Single character JSON import is not implemented.
+- `[ ]` Selected character Markdown export is not implemented.
+- `[x]` Copy selected character as assembled Markdown-like text is implemented.
+
+### UI / UX / Accessibility Status
+
+- `[x]` Dark-first visual style with light/system theme support.
+- `[x]` App shell with Characters and Settings.
+- `[x]` Toasts implemented for create/save/copy/duplicate/delete/image/backup/restore flows.
+- `[x]` Confirmation dialogs for character delete, scene delete, image remove, restore, and unsaved close.
+- `[x]` Playwright screenshots generated locally during development and UI refined afterward.
+- `[~]` Accessibility basics are present through labels/aria on key controls, but no formal keyboard/screen-reader audit has been completed.
+- `[~]` UI is polished enough for first pass, but more product-design iteration would improve icons, typography, and real image states.
+
+### Validation / Testing Status
+
+- `[x]` `node --check src/main.js` passed.
+- `[x]` `node --check src/tauriBridge.js` passed.
+- `[x]` `cargo check` passed.
+- `[x]` `cargo test` passed.
+- `[x]` `npm audit --omit=dev` passed.
+- `[x]` `npm run tauri -- build` passed.
+- `[x]` Playwright screenshots captured for desktop home, desktop editor, and mobile home.
+- `[~]` Manual packaged-app testing is incomplete for real image import, persistence after restart, backup/restore into populated data, conflict restore, and missing-media restore.
+
+### Known Not Done / Follow-Up Items
+
+- `[ ]` Single-character import/export.
+- `[ ]` List view / view toggle.
+- `[ ]` Scene reordering.
+- `[ ]` Editable notes per compatible model.
+- `[ ]` Dynamic save status and/or autosave.
+- `[ ]` Archive-first delete workflow.
+- `[ ]` Formal accessibility pass.
+- `[ ]` Automated tests for storage merge/conflict restore behavior.
+- `[ ]` Manual packaged-app test checklist from Phase 9.
+- `[ ]` Replace borrowed ArtifactKeep icon set with CharacterKeep-specific app icons.
+
 You are helping me build a new local-first Tauri 2 desktop app for managing roleplay characters.
 The app should be a polished, delightful, premium-feeling, offline-only character vault. It should let users create, edit, organize, duplicate, search, back up, restore, and copy roleplay character data. All data must live locally on the user’s machine inside the app data directory. There should be no cloud sync, no backend, no telemetry, and no required account.
 I have an existing related project called `artifactkeep-app`, I have cloned it to a sister directory to this directory. Feel free to clone it into this directory as a reference if needed and it makes it easier. Use that project as a primary reference implementation. It already contains a lot of useful architecture, UI patterns, storage behavior, import/export ideas, cards, settings, prompt handling, image handling, and local-first concepts. Reuse/adapt anything from ArtifactKeep that makes sense, but do not blindly clone it. This new app should feel character-native, not like a prompt manager with renamed labels.
