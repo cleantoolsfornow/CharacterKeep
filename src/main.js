@@ -32,7 +32,8 @@ const state = {
   selectedIds: new Set(),
   lastSelectedId: null,
   imageCache: new Map(),
-  dataPath: ''
+  dataPath: '',
+  fatalError: null
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -91,17 +92,37 @@ function defaultCollection(name = 'New Collection') {
 
 function normalizeNamedArray(value) {
   return Array.isArray(value) ? value.filter(Boolean).map((item) => {
-    if (typeof item === 'string') return { id: uid(), name: item };
-    return { id: item.id || uid(), name: String(item.name || item.label || '').trim(), ...item };
+    if (typeof item === 'string') return { id: uid(), name: item.trim() };
+    const name = String(item.name || item.label || '').trim();
+    return { ...item, id: item.id || uid(), name };
   }).filter((item) => item.name) : [];
 }
 
 function normalizeScenes(value) {
-  return Array.isArray(value) ? value.filter(Boolean).map((scene) => ({ id: scene.id || uid(), title: String(scene.title || ''), body: String(scene.body || scene.text || ''), tags: Array.isArray(scene.tags) ? scene.tags : [], createdAt: scene.createdAt || nowIso(), updatedAt: scene.updatedAt || nowIso(), ...scene })) : [];
+  return Array.isArray(value) ? value.filter(Boolean).map((scene) => ({
+    ...scene,
+    id: scene.id || uid(),
+    title: String(scene.title || ''),
+    body: String(scene.body || scene.text || ''),
+    tags: Array.isArray(scene.tags) ? scene.tags : [],
+    createdAt: scene.createdAt || nowIso(),
+    updatedAt: scene.updatedAt || nowIso()
+  })) : [];
 }
 
 function normalizeGallery(value) {
-  return Array.isArray(value) ? value.filter(Boolean).map((image) => ({ id: image.id || uid(), filename: image.filename || '', originalPath: image.originalPath || '', thumbnailPath: image.thumbnailPath || '', caption: image.caption || '', notes: image.notes || '', isCover: Boolean(image.isCover), createdAt: image.createdAt || nowIso(), updatedAt: image.updatedAt || nowIso(), ...image })) : [];
+  return Array.isArray(value) ? value.filter(Boolean).map((image) => ({
+    ...image,
+    id: image.id || uid(),
+    filename: String(image.filename || ''),
+    originalPath: String(image.originalPath || ''),
+    thumbnailPath: String(image.thumbnailPath || ''),
+    caption: String(image.caption || ''),
+    notes: String(image.notes || ''),
+    isCover: Boolean(image.isCover),
+    createdAt: image.createdAt || nowIso(),
+    updatedAt: image.updatedAt || nowIso()
+  })) : [];
 }
 
 function normalizeCharacter(character) {
@@ -129,10 +150,13 @@ function normalizeCharacter(character) {
 function normalizeCollection(collection) {
   const base = defaultCollection(collection?.name || 'Untitled Collection');
   const next = { ...base, ...(collection || {}) };
+  next.id = String(next.id || uid());
   next.name = String(next.name || 'Untitled Collection');
   next.description = String(next.description || '');
   next.color = String(next.color || '');
   next.archived = Boolean(next.archived);
+  next.createdAt = next.createdAt || nowIso();
+  next.updatedAt = next.updatedAt || nowIso();
   return next;
 }
 
@@ -164,7 +188,13 @@ async function readJson(path, fallback) {
     const raw = localStorage.getItem(`characterkeep:${path}`);
     return raw ? JSON.parse(raw) : fallback;
   }
-  try { return JSON.parse(await tauriInvoke('read_json_file', { filename: path })); } catch { return fallback; }
+  try {
+    return JSON.parse(await tauriInvoke('read_json_file_with_recovery', { filename: path }));
+  } catch (error) {
+    const message = String(error?.message || error || '');
+    if (message.includes('JSON file not found')) return fallback;
+    throw new Error(message || `Could not read ${path}`);
+  }
 }
 
 async function writeJsonNow(path, value) {
@@ -318,7 +348,7 @@ async function renderCards() {
   if (state.settings.viewMode === 'list') return renderList(items);
   const cards = await Promise.all(items.map(async (character) => {
     const cover = cardCover(character); const imageUrl = await loadImage(cover?.thumbnailPath || cover?.originalPath); const checked = state.selectedIds.has(character.id);
-    return `<article class="character-card ${checked ? 'selected' : ''}" data-action="open-editor" data-id="${character.id}" tabindex="0"><label class="select-box" title="Select"><input type="checkbox" data-select-id="${character.id}" ${checked ? 'checked' : ''} /></label><div class="card-art ${imageUrl ? 'has-image' : ''}">${imageUrl ? `<img src="${imageUrl}" alt="" />` : `<div class="placeholder"><span>${escapeHtml(character.title.slice(0, 1).toUpperCase() || 'C')}</span></div>`}${character.favorite ? '<span class="favorite-badge">★</span>' : ''}</div><div class="card-body"><div class="card-title-row"><h3>${escapeHtml(character.title)}</h3><span>${formatDate(character.updatedAt)}</span></div>${character.subtitle ? `<p>${escapeHtml(character.subtitle)}</p>` : '<p class="muted">No subtitle yet</p>'}<div class="chip-row"><span class="chip collection-chip">${escapeHtml(collectionLabel(character.collectionId))}</span>${chipMarkup(character.tags.slice(0, 3))}${chipMarkup(character.compatibleModels.slice(0, 2), 'model-chip')}</div><div class="card-meta"><span>${character.scenes.length} scenes</span><span>${character.gallery.length} images</span></div><div class="card-actions"><button class="card-action-button" data-action="copy-system" data-id="${character.id}"><span>⧉</span><em>Copy</em></button><button class="card-action-button" data-action="duplicate" data-id="${character.id}"><span>⎘</span><em>Duplicate</em></button><button class="card-action-button quiet" data-action="archive" data-id="${character.id}"><span>${character.archived ? '↥' : '↓'}</span><em>${character.archived ? 'Restore' : 'Archive'}</em></button></div></div></article>`;
+    return `<article class="character-card ${checked ? 'selected' : ''}" data-action="open-editor" data-id="${character.id}" tabindex="0"><label class="select-box" title="Select" data-select-id="${character.id}"><input type="checkbox" data-select-id="${character.id}" ${checked ? 'checked' : ''} /></label><div class="card-art ${imageUrl ? 'has-image' : ''}">${imageUrl ? `<img src="${imageUrl}" alt="" />` : `<div class="placeholder"><span>${escapeHtml(character.title.slice(0, 1).toUpperCase() || 'C')}</span></div>`}${character.favorite ? '<span class="favorite-badge">★</span>' : ''}</div><div class="card-body"><div class="card-title-row"><h3>${escapeHtml(character.title)}</h3><span>${formatDate(character.updatedAt)}</span></div>${character.subtitle ? `<p>${escapeHtml(character.subtitle)}</p>` : '<p class="muted">No subtitle yet</p>'}<div class="chip-row"><span class="chip collection-chip">${escapeHtml(collectionLabel(character.collectionId))}</span>${chipMarkup(character.tags.slice(0, 3))}${chipMarkup(character.compatibleModels.slice(0, 2), 'model-chip')}</div><div class="card-meta"><span>${character.scenes.length} scenes</span><span>${character.gallery.length} images</span></div><div class="card-actions"><button class="card-action-button" data-action="copy-system" data-id="${character.id}"><span>⧉</span><em>Copy</em></button><button class="card-action-button" data-action="duplicate" data-id="${character.id}"><span>⎘</span><em>Duplicate</em></button><button class="card-action-button quiet" data-action="archive" data-id="${character.id}"><span>${character.archived ? '↥' : '↓'}</span><em>${character.archived ? 'Restore' : 'Archive'}</em></button></div></div></article>`;
   }));
   return `<section class="grid">${cards.join('')}</section>`;
 }

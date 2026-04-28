@@ -100,12 +100,16 @@ Restore From Backup now shows a preflight summary before mutation. Restore remai
 - Different ID with the same meaningful content is skipped.
 - Characters can still import if media files are missing; missing media is counted in the restore summary.
 - Collections are merged by ID/name and skipped when duplicates already exist.
+- Imported characters are remapped to the final local collection ID, so skipped same-name collections do not leave missing collection references.
+- Existing `characters.json` and `collections.json` are copied to `.pre-restore-<timestamp>` files before restore mutation.
 
 There is intentionally no destructive overwrite restore mode.
 
 ## Data Safety
 
-CharacterKeep normalizes loaded characters, collections, and settings with safe defaults. Unknown fields are preserved where possible. JSON writes are serialized/debounced in the frontend and written atomically by the backend. Invalid JSON writes are rejected instead of replacing existing files.
+CharacterKeep normalizes loaded characters, collections, and settings with safe defaults. Unknown fields are preserved where possible, while normalized core fields win over invalid source values. JSON writes are serialized/debounced in the frontend and written atomically by the backend. Invalid JSON writes are rejected instead of replacing existing files.
+
+If an existing JSON file cannot be parsed, the desktop backend creates a `.broken-<timestamp>` recovery copy and the app shows a blocking startup error instead of silently loading an empty vault.
 
 Schema reference files live under `src/assets/schemas/`.
 

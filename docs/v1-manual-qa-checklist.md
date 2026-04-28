@@ -216,3 +216,6 @@ Use a packaged desktop build for this checklist. Start with a known test data di
 - View mode: switch between Cards and List, quit/reopen, and confirm the selected view persists.
 - Help page: open Help and confirm privacy, data folder, gallery, backup/restore, import/export, collections, bulk actions, shortcuts, and support guidance render.
 - Data safety: corrupt a copied test JSON file and confirm the app does not silently delete the original user data during normal restore/import flows.
+- Data safety: corrupt an existing JSON file in a disposable test vault, launch the app, and confirm a blocking error appears and a `.broken-<timestamp>` copy is created.
+- Restore safety: restore a backup into a disposable vault and confirm `.pre-restore-<timestamp>` copies are created for existing character/collection JSON files.
+- Collection restore mapping: restore a character whose incoming collection has the same name as an existing local collection with a different ID and confirm the character is assigned to the existing local collection.

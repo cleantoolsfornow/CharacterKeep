@@ -94,13 +94,64 @@ fn read_json_file(app: tauri::AppHandle, filename: String) -> Result<String, Str
     fs::read_to_string(&file_path).map_err(|e| format!("Failed to read {}: {}", filename, e))
 }
 
+fn copy_with_suffix(path: &Path, suffix: &str) -> Result<Option<PathBuf>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| format!("Invalid filename: {}", path.display()))?;
+    let backup = path.with_file_name(format!("{}.{}", file_name, suffix));
+    fs::copy(path, &backup)
+        .map_err(|e| format!("Failed to create safety copy {}: {}", backup.display(), e))?;
+    Ok(Some(backup))
+}
+
+fn write_json_value_atomic(path: &Path, value: &Value) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("Failed to serialize JSON for {}: {}", path.display(), e))?;
+    write_json_string_atomic(path, &content)
+}
+
+fn write_json_string_atomic(path: &Path, content: &str) -> Result<(), String> {
+    serde_json::from_str::<Value>(content)
+        .map_err(|e| format!("Refusing to write invalid JSON to {}: {}", path.display(), e))?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    let temp_path = path.with_extension(format!("tmp-{}", Uuid::new_v4()));
+    fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
+    fs::rename(&temp_path, path)
+        .map_err(|e| format!("Failed to replace {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn read_json_file_with_recovery(app: tauri::AppHandle, filename: String) -> Result<String, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let file_path = data_dir.join(resolve_relative_path(&filename)?);
+    if !file_path.exists() {
+        return Err(format!("JSON file not found: {}", filename));
+    }
+    let content = fs::read_to_string(&file_path)
+        .map_err(|e| format!("Failed to read {}: {}", filename, e))?;
+    if let Err(error) = serde_json::from_str::<Value>(&content) {
+        let suffix = format!("broken-{}", Utc::now().format("%Y%m%d%H%M%S"));
+        let recovered = copy_with_suffix(&file_path, &suffix)?
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| "no recovery copy created".to_string());
+        return Err(format!(
+            "Could not parse {}. A recovery copy was created at {}. Error: {}",
+            filename, recovered, error
+        ));
+    }
+    Ok(content)
+}
+
 #[tauri::command]
 fn write_json_file(app: tauri::AppHandle, filename: String, content: String) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
     let file_path = data_dir.join(resolve_relative_path(&filename)?);
-    if let Some(parent) = file_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
     if filename.ends_with(".json") && serde_json::from_str::<Value>(&content).is_err() {
         if file_path.exists() {
             let broken = file_path.with_extension(format!(
@@ -111,12 +162,14 @@ fn write_json_file(app: tauri::AppHandle, filename: String, content: String) -> 
         }
         return Err(format!("Refusing to write invalid JSON to {}", filename));
     }
-    let temp_path = file_path.with_extension(format!(
-        "tmp-{}",
-        Uuid::new_v4()
-    ));
-    fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
-    fs::rename(&temp_path, &file_path).map_err(|e| format!("Failed to replace {}: {}", filename, e))
+    if filename.ends_with(".json") {
+        write_json_string_atomic(&file_path, &content)
+    } else {
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+        fs::write(&file_path, content).map_err(|e| format!("Failed to write {}: {}", filename, e))
+    }
 }
 
 #[tauri::command]
@@ -426,8 +479,16 @@ fn validate_characterkeep_manifest(manifest: &Value) -> Result<(), String> {
     if manifest.get("app").and_then(|v| v.as_str()) != Some("CharacterKeep") {
         return Err("This is not a CharacterKeep backup".to_string());
     }
+    let export_type = manifest
+        .get("exportType")
+        .and_then(|value| value.as_str())
+        .unwrap_or("backup");
+    if !matches!(export_type, "backup" | "character") {
+        return Err(format!("Unsupported CharacterKeep export type: {}", export_type));
+    }
     let schema = manifest
         .get("backupSchemaVersion")
+        .or_else(|| manifest.get("schemaVersion"))
         .and_then(|value| value.as_u64())
         .unwrap_or(1);
     if schema != 1 {
@@ -517,25 +578,79 @@ fn collection_name(value: &Value) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn merge_collections(current: Vec<Value>, incoming: Vec<Value>, summary: &mut RestoreSummary) -> Vec<Value> {
+#[derive(Clone, Debug)]
+struct CollectionMergeResult {
+    collections: Vec<Value>,
+    id_map: HashMap<String, String>,
+    final_ids: HashSet<String>,
+}
+
+fn merge_collections(current: Vec<Value>, incoming: Vec<Value>, summary: &mut RestoreSummary) -> CollectionMergeResult {
     let mut merged = current;
     let mut ids = merged.iter().filter_map(value_id).collect::<HashSet<_>>();
-    let mut names = merged.iter().filter_map(collection_name).collect::<HashSet<_>>();
+    let mut names = HashMap::<String, String>::new();
+    for collection in &merged {
+        if let (Some(name), Some(id)) = (collection_name(collection), value_id(collection)) {
+            names.insert(name, id);
+        }
+    }
+    let mut id_map = HashMap::<String, String>::new();
     for collection in incoming {
         let id = value_id(&collection).unwrap_or_else(|| Uuid::new_v4().to_string());
         let name = collection_name(&collection);
-        if ids.contains(&id) || name.as_ref().is_some_and(|n| names.contains(n)) {
+        if ids.contains(&id) {
+            id_map.insert(id, value_id(&collection).unwrap_or_default());
             summary.collections_skipped += 1;
             continue;
         }
-        ids.insert(id);
+        if let Some(existing_id) = name.as_ref().and_then(|n| names.get(n)).cloned() {
+            id_map.insert(id, existing_id);
+            summary.collections_skipped += 1;
+            continue;
+        }
+        let mut collection = collection;
+        if value_id(&collection).is_none() {
+            set_string_field(&mut collection, "id", id.clone());
+        }
+        id_map.insert(id.clone(), id.clone());
+        ids.insert(id.clone());
         if let Some(name) = name {
-            names.insert(name);
+            names.insert(name, id);
         }
         merged.push(collection);
         summary.collections_imported += 1;
     }
-    merged
+    CollectionMergeResult {
+        collections: merged,
+        id_map,
+        final_ids: ids,
+    }
+}
+
+fn remap_character_collection_ids(characters: &mut [Value], collection_result: &CollectionMergeResult) {
+    for character in characters {
+        let next_collection_id = character
+            .get("collectionId")
+            .and_then(|value| value.as_str())
+            .and_then(|id| {
+                collection_result
+                    .id_map
+                    .get(id)
+                    .cloned()
+                    .or_else(|| collection_result.final_ids.contains(id).then(|| id.to_string()))
+            });
+
+        if let Some(obj) = character.as_object_mut() {
+            match next_collection_id {
+                Some(id) => {
+                    obj.insert("collectionId".to_string(), Value::String(id));
+                }
+                None => {
+                    obj.insert("collectionId".to_string(), Value::Null);
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -682,7 +797,13 @@ fn preflight_characterkeep_backup_zip(app: tauri::AppHandle, source_path: String
         Ok((manifest, incoming, incoming_collections, _media, media_names)) => {
             let current_value = read_json_or_default(&data_dir.join("data/characters.json"), json!([]))?;
             let current = current_value.as_array().cloned().unwrap_or_default();
-            let plan = plan_restore_merge(current, incoming.clone(), &media_names);
+            let current_collections_value = read_json_or_default(&data_dir.join("data/collections.json"), json!([]))?;
+            let current_collections = current_collections_value.as_array().cloned().unwrap_or_default();
+            let mut summary = RestoreSummary::default();
+            let collection_result = merge_collections(current_collections, incoming_collections.clone(), &mut summary);
+            let mut incoming_for_plan = incoming.clone();
+            remap_character_collection_ids(&mut incoming_for_plan, &collection_result);
+            let plan = plan_restore_merge(current, incoming_for_plan, &media_names);
             let export_type = manifest
                 .get("exportType")
                 .and_then(|v| v.as_str())
@@ -719,18 +840,25 @@ fn restore_characterkeep_backup_zip(
     app: tauri::AppHandle,
     source_path: String,
 ) -> Result<RestoreSummary, String> {
-    let (_manifest, incoming, incoming_collections, media, media_keys) = read_characterkeep_zip(&source_path)?;
+    let (_manifest, mut incoming, incoming_collections, media, media_keys) = read_characterkeep_zip(&source_path)?;
 
     let data_dir = ensure_data_dir(&app)?;
     let characters_path = data_dir.join("data/characters.json");
     let collections_path = data_dir.join("data/collections.json");
     let current_value = read_json_or_default(&characters_path, json!([]))?;
     let current = current_value.as_array().cloned().unwrap_or_default();
-    let mut plan = plan_restore_merge(current, incoming, &media_keys);
     let current_collections_value = read_json_or_default(&collections_path, json!([]))?;
     let current_collections = current_collections_value.as_array().cloned().unwrap_or_default();
-    let merged_collections = merge_collections(current_collections, incoming_collections, &mut plan.summary);
+    let mut collection_summary = RestoreSummary::default();
+    let collection_result = merge_collections(current_collections, incoming_collections, &mut collection_summary);
+    remap_character_collection_ids(&mut incoming, &collection_result);
+    let mut plan = plan_restore_merge(current, incoming, &media_keys);
+    plan.summary.collections_imported = collection_summary.collections_imported;
+    plan.summary.collections_skipped = collection_summary.collections_skipped;
 
+    let restore_stamp = format!("pre-restore-{}", Utc::now().format("%Y%m%d%H%M%S"));
+    let _ = copy_with_suffix(&characters_path, &restore_stamp)?;
+    let _ = copy_with_suffix(&collections_path, &restore_stamp)?;
     for copy_plan in &plan.media_copies {
         if let Some(bytes) = media.get(&copy_plan.source_path) {
             let dest = data_dir.join(resolve_relative_path(&copy_plan.dest_path)?);
@@ -742,16 +870,10 @@ fn restore_characterkeep_backup_zip(
         }
     }
 
-    fs::write(
-        &characters_path,
-        serde_json::to_string_pretty(&plan.characters).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("Failed to save restored characters: {}", e))?;
-    fs::write(
-        &collections_path,
-        serde_json::to_string_pretty(&merged_collections).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| format!("Failed to save restored collections: {}", e))?;
+    write_json_value_atomic(&characters_path, &Value::Array(plan.characters.clone()))
+        .map_err(|e| format!("Failed to save restored characters: {}", e))?;
+    write_json_value_atomic(&collections_path, &Value::Array(collection_result.collections))
+        .map_err(|e| format!("Failed to save restored collections: {}", e))?;
     Ok(plan.summary)
 }
 
@@ -827,6 +949,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             read_json_file,
+            read_json_file_with_recovery,
             write_json_file,
             file_exists,
             get_app_data_path,
@@ -1008,6 +1131,28 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_schema_version_field_is_rejected() {
+        let result = validate_characterkeep_manifest(&json!({
+            "app": "CharacterKeep",
+            "exportType": "character",
+            "schemaVersion": 99
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unsupported_export_type_is_rejected() {
+        let result = validate_characterkeep_manifest(&json!({
+            "app": "CharacterKeep",
+            "exportType": "library",
+            "schemaVersion": 1
+        }));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn restore_merge_never_wipes_existing_data() {
         let current = vec![character("current-id", "Existing")];
         let incoming = vec![character("incoming-id", "Incoming")];
@@ -1038,13 +1183,37 @@ mod tests {
             json!({ "id": "collection-3", "name": "Side Cast" })
         ];
         let mut summary = RestoreSummary::default();
-        let merged = merge_collections(current, incoming, &mut summary);
+        let result = merge_collections(current, incoming, &mut summary);
 
-        assert_eq!(merged.len(), 2);
+        assert_eq!(result.collections.len(), 2);
         assert_eq!(summary.collections_imported, 1);
         assert_eq!(summary.collections_skipped, 1);
-        assert!(merged.iter().any(|collection| {
+        assert_eq!(
+            result.id_map.get("collection-2").map(String::as_str),
+            Some("collection-1")
+        );
+        assert!(result.collections.iter().any(|collection| {
             collection.get("name").and_then(|name| name.as_str()) == Some("Side Cast")
         }));
+    }
+
+    #[test]
+    fn restore_remaps_character_collection_ids_to_final_ids() {
+        let current = vec![json!({ "id": "local-main", "name": "Main Cast" })];
+        let incoming_collections = vec![json!({ "id": "incoming-main", "name": "Main Cast" })];
+        let mut summary = RestoreSummary::default();
+        let collection_result = merge_collections(current, incoming_collections, &mut summary);
+        let mut incoming_characters = vec![
+            json!({ "id": "c1", "title": "A", "collectionId": "incoming-main" }),
+            json!({ "id": "c2", "title": "B", "collectionId": "missing-folder" })
+        ];
+
+        remap_character_collection_ids(&mut incoming_characters, &collection_result);
+
+        assert_eq!(
+            incoming_characters[0].get("collectionId").and_then(|value| value.as_str()),
+            Some("local-main")
+        );
+        assert!(incoming_characters[1].get("collectionId").is_some_and(|value| value.is_null()));
     }
 }
