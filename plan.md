@@ -13,12 +13,21 @@ Legend:
 
 - `[x]` ArtifactKeep sibling project inspected at `/Users/matt/artifactkeep-app`.
 - `[x]` Reuse audit written at `docs/artifactkeep-reuse-audit.md`.
+- `[x]` Manual packaged-app QA checklist written at `docs/v1-manual-qa-checklist.md`.
 - `[x]` Tauri 2 app scaffold added for CharacterKeep.
 - `[x]` Vanilla HTML/CSS/JS frontend implemented.
 - `[x]` Rust backend commands implemented for local JSON, image copy/thumbnail, backup, restore, and data folder access.
 - `[x]` App builds successfully with `npm run tauri -- build`.
 - `[x]` UI was visually inspected with Playwright screenshots and refined afterward.
-- `[~]` Main v1 product workflow is implemented, but not every item in this plan is fully complete or manually tested in the packaged desktop app.
+- `[x]` V1 stabilization pass added dynamic save status, archive-first card behavior, restore merge tests, improved missing-image UI, and CharacterKeep-specific icon assets.
+- `[~]` Main v1 product workflow is implemented, but not every item in this plan is fully manually tested in the packaged desktop app.
+
+### Next Recommended Pass
+
+- Run the full manual packaged-app QA checklist on macOS with real image files and real backup ZIPs.
+- Add automated browser tests for the main frontend workflows: create, edit/save, unsaved close, archive/unarchive, and gallery missing-image UI.
+- Add a small release checklist covering signed/notarized builds, icon review, and smoke testing from a clean app data directory.
+- Improve keyboard and screen-reader accessibility after the manual QA results are known.
 
 ### Product Vision Status
 
@@ -63,7 +72,7 @@ Legend:
 - `[x]` Character cards with preview placeholder/image, title, subtitle, tags, compatible models, edited date, scene count, gallery count, favorite indicator, and quick actions.
 - `[x]` Card quick copy copies system prompt.
 - `[x]` Card duplicate duplicates character data and local media files.
-- `[x]` Card delete requires confirmation and deletes local media directory.
+- `[x]` Card action archives/restores characters instead of permanently deleting them.
 - `[x]` Clicking a card opens the character editor.
 - `[x]` Search input.
 - `[x]` New Character button.
@@ -82,7 +91,7 @@ Legend:
 
 - `[x]` Full-screen editor experience implemented.
 - `[x]` Header includes preview/avatar, title field, subtitle field, favorite toggle, copy full button, save button, duplicate button, delete button, and close button.
-- `[~]` Save status exists as static helper text; it does not dynamically show Saved/Saving/Unsaved.
+- `[x]` Dynamic save status shows Saved, Unsaved changes, Saving..., and Save failed.
 - `[~]` Content is organized into sections rather than literal tabs.
 - `[x]` Title field required.
 - `[x]` Subtitle field.
@@ -108,9 +117,12 @@ Legend:
 - `[x]` Character duplication assigns new character, scene, tag, model, and gallery IDs.
 - `[x]` Duplicate title becomes `Original Title Copy`.
 - `[x]` Duplicate copies local gallery image files when running in Tauri.
+- `[x]` Card-level destructive action changed to archive/restore rather than permanent delete.
+- `[x]` Archived characters disappear from the default grid and appear through the Archived filter.
+- `[x]` Archived characters can be restored from the card action or unarchived in the editor.
 - `[x]` Delete confirmation names the character.
 - `[x]` Delete removes character from JSON and removes local media directory.
-- `[ ]` Archive-first delete flow is not implemented; archive exists as a filter/editable flag only.
+- `[x]` Permanent delete remains in the editor with stronger confirmation copy.
 
 ### Settings Status
 
@@ -136,8 +148,8 @@ Legend:
 - `[x]` Same content hash is skipped.
 - `[x]` Same ID with different content imports as conflict copy with new IDs.
 - `[x]` Different ID with same content hash is skipped.
-- `[~]` Missing media is counted in restore summary, but this needs deeper manual testing with intentionally damaged backups.
-- `[~]` Unknown fields are generally preserved because character JSON is handled as `serde_json::Value`, but there is no explicit migration test suite yet.
+- `[x]` Missing media is counted in restore summary and character import still proceeds.
+- `[x]` Unknown fields are preserved in restore merge tests.
 - `[x]` Restore summary returns imported/skipped/conflicts/media/missing counts and is shown via toast.
 - `[ ]` Destructive overwrite restore mode is not implemented, by design.
 
@@ -155,8 +167,10 @@ Legend:
 - `[x]` Toasts implemented for create/save/copy/duplicate/delete/image/backup/restore flows.
 - `[x]` Confirmation dialogs for character delete, scene delete, image remove, restore, and unsaved close.
 - `[x]` Playwright screenshots generated locally during development and UI refined afterward.
+- `[x]` Missing/broken gallery image paths show graceful missing-image UI.
+- `[x]` CharacterKeep-specific placeholder icon assets generated from `src-tauri/icons/app-icon.svg`.
 - `[~]` Accessibility basics are present through labels/aria on key controls, but no formal keyboard/screen-reader audit has been completed.
-- `[~]` UI is polished enough for first pass, but more product-design iteration would improve icons, typography, and real image states.
+- `[~]` UI is polished enough for v1 stabilization, but more product-design iteration would improve final visual identity.
 
 ### Validation / Testing Status
 
@@ -167,6 +181,7 @@ Legend:
 - `[x]` `npm audit --omit=dev` passed.
 - `[x]` `npm run tauri -- build` passed.
 - `[x]` Playwright screenshots captured for desktop home, desktop editor, and mobile home.
+- `[x]` Automated Rust restore merge tests cover skip, conflict copy, duplicate-content skip, missing media, unknown fields, invalid manifest, and preserve-existing-data behavior.
 - `[~]` Manual packaged-app testing is incomplete for real image import, persistence after restart, backup/restore into populated data, conflict restore, and missing-media restore.
 
 ### Known Not Done / Follow-Up Items
@@ -175,12 +190,9 @@ Legend:
 - `[ ]` List view / view toggle.
 - `[ ]` Scene reordering.
 - `[ ]` Editable notes per compatible model.
-- `[ ]` Dynamic save status and/or autosave.
-- `[ ]` Archive-first delete workflow.
+- `[ ]` Autosave, if wanted after v1 manual QA.
 - `[ ]` Formal accessibility pass.
-- `[ ]` Automated tests for storage merge/conflict restore behavior.
-- `[ ]` Manual packaged-app test checklist from Phase 9.
-- `[ ]` Replace borrowed ArtifactKeep icon set with CharacterKeep-specific app icons.
+- `[ ]` Run and record full manual packaged-app test checklist results.
 
 You are helping me build a new local-first Tauri 2 desktop app for managing roleplay characters.
 The app should be a polished, delightful, premium-feeling, offline-only character vault. It should let users create, edit, organize, duplicate, search, back up, restore, and copy roleplay character data. All data must live locally on the user’s machine inside the app data directory. There should be no cloud sync, no backend, no telemetry, and no required account.

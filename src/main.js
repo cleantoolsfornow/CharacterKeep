@@ -21,6 +21,7 @@ const state = {
   selectedId: null,
   draft: null,
   dirty: false,
+  saveStatus: 'saved',
   imageCache: new Map(),
   dataPath: ''
 };
@@ -82,6 +83,27 @@ async function confirmAction(message, title = 'Confirm') {
   return window.confirm(`${title}\n\n${message}`);
 }
 
+function setSaveStatus(status) {
+  state.saveStatus = status;
+  const node = $('.save-status');
+  if (node) {
+    node.textContent = saveStatusText();
+    node.dataset.status = state.saveStatus;
+  }
+}
+
+function saveStatusText() {
+  if (state.saveStatus === 'saving') return 'Saving...';
+  if (state.saveStatus === 'failed') return 'Save failed';
+  if (state.saveStatus === 'unsaved') return 'Unsaved changes';
+  return 'Saved';
+}
+
+function markDraftDirty() {
+  state.dirty = true;
+  setSaveStatus('unsaved');
+}
+
 async function readJson(path, fallback) {
   if (!hasTauri()) {
     const raw = localStorage.getItem(`characterkeep:${path}`);
@@ -121,6 +143,12 @@ function applyTheme() {
 
 async function saveAll(message) {
   await writeJson(DATA_FILE, state.characters);
+  if (message) toast(message);
+}
+
+async function persistCharacters(nextCharacters, message) {
+  await writeJson(DATA_FILE, nextCharacters);
+  state.characters = nextCharacters;
   if (message) toast(message);
 }
 
@@ -166,6 +194,7 @@ function searchableText(character) {
 function filteredCharacters() {
   const query = state.query.trim().toLowerCase();
   let items = state.characters.filter((character) => {
+    if (state.filters.archived && !character.archived) return false;
     if (!state.filters.archived && character.archived) return false;
     if (state.filters.favorite && !character.favorite) return false;
     if (state.filters.gallery && !character.gallery.length) return false;
@@ -226,6 +255,7 @@ function openEditor(id) {
   state.selectedId = id;
   state.draft = structuredClone(findCharacter(id));
   state.dirty = false;
+  state.saveStatus = 'saved';
   render();
 }
 
@@ -237,6 +267,7 @@ async function closeEditor() {
   state.selectedId = null;
   state.draft = null;
   state.dirty = false;
+  state.saveStatus = 'saved';
   render();
 }
 
@@ -246,14 +277,27 @@ async function saveDraft() {
     toast('Title is required', 'danger');
     return false;
   }
-  state.draft.title = title;
-  state.draft.updatedAt = nowIso();
-  const index = state.characters.findIndex((character) => character.id === state.draft.id);
-  if (index >= 0) state.characters[index] = structuredClone(state.draft);
-  state.dirty = false;
-  await saveAll('Character saved');
-  render();
-  return true;
+  setSaveStatus('saving');
+  try {
+    const savedDraft = { ...structuredClone(state.draft), title, updatedAt: nowIso() };
+    const index = state.characters.findIndex((character) => character.id === state.draft.id);
+    if (index < 0) throw new Error('Character no longer exists');
+    const nextCharacters = state.characters.map((character, currentIndex) => (
+      currentIndex === index ? savedDraft : character
+    ));
+    await persistCharacters(nextCharacters, 'Character saved');
+    state.draft = structuredClone(savedDraft);
+    state.dirty = false;
+    setSaveStatus('saved');
+    render();
+    return true;
+  } catch (error) {
+    console.error('Could not save character', error);
+    state.dirty = true;
+    setSaveStatus('failed');
+    toast('Could not save character. Your existing data was not changed.', 'danger');
+    return false;
+  }
 }
 
 function duplicatePath(path, oldId, newId, newImageId) {
@@ -301,10 +345,19 @@ async function duplicateCharacter(id) {
   await saveAll('Character duplicated');
 }
 
+async function archiveCharacter(id, archived = true) {
+  const character = findCharacter(id);
+  if (!character) return;
+  character.archived = archived;
+  character.updatedAt = nowIso();
+  await saveAll(archived ? 'Character archived' : 'Character restored');
+  render();
+}
+
 async function deleteCharacter(id) {
   const character = findCharacter(id);
   if (!character) return;
-  const ok = await confirmAction(`This will permanently remove "${character.title}" and its local gallery files. This cannot be undone.`, `Delete "${character.title}"?`);
+  const ok = await confirmAction(`This will permanently remove "${character.title}" and all local gallery files stored for it. This cannot be undone.\n\nFor safer cleanup, archive characters from the card grid and only delete permanently from this editor.`, `Permanently delete "${character.title}"?`);
   if (!ok) return;
   state.characters = state.characters.filter((item) => item.id !== id);
   if (hasTauri()) {
@@ -318,6 +371,7 @@ async function deleteCharacter(id) {
     state.selectedId = null;
     state.draft = null;
     state.dirty = false;
+    state.saveStatus = 'saved';
   }
   await saveAll('Character deleted');
   render();
@@ -332,10 +386,11 @@ async function renderCards() {
   const cards = await Promise.all(items.map(async (character) => {
     const cover = character.gallery.find((image) => image.id === character.previewImageId || image.isCover) || character.gallery[0];
     const imageUrl = await loadImage(cover?.thumbnailPath || cover?.originalPath);
+    const hasBrokenCover = cover && !imageUrl;
     return `
       <article class="character-card" data-action="open-editor" data-id="${character.id}" tabindex="0">
-        <div class="card-art ${imageUrl ? 'has-image' : ''}">
-          ${imageUrl ? `<img src="${imageUrl}" alt="" />` : `<div class="placeholder">${escapeHtml(character.title.slice(0, 1).toUpperCase() || 'C')}</div>`}
+        <div class="card-art ${imageUrl ? 'has-image' : ''} ${hasBrokenCover ? 'missing-image' : ''}">
+          ${imageUrl ? `<img src="${imageUrl}" alt="" />` : `<div class="placeholder"><span>${escapeHtml(character.title.slice(0, 1).toUpperCase() || 'C')}</span>${hasBrokenCover ? '<small>Image missing</small>' : ''}</div>`}
           ${character.favorite ? '<span class="favorite-badge" aria-label="Favorite">★</span>' : ''}
         </div>
         <div class="card-body">
@@ -352,7 +407,7 @@ async function renderCards() {
           <div class="card-actions">
             <button class="icon-button" data-action="copy-system" data-id="${character.id}" title="Copy system prompt" aria-label="Copy system prompt">⧉</button>
             <button class="icon-button" data-action="duplicate" data-id="${character.id}" title="Duplicate character" aria-label="Duplicate character">⎘</button>
-            <button class="icon-button danger" data-action="delete" data-id="${character.id}" title="Delete character" aria-label="Delete character">⌫</button>
+            <button class="icon-button quiet" data-action="archive" data-id="${character.id}" title="${character.archived ? 'Restore character' : 'Archive character'}" aria-label="${character.archived ? 'Restore character' : 'Archive character'}">${character.archived ? '↥' : '↓'}</button>
           </div>
         </div>
       </article>
@@ -459,11 +514,13 @@ async function editorView() {
   if (!c) return '';
   const cover = c.gallery.find((image) => image.id === c.previewImageId || image.isCover) || c.gallery[0];
   const coverUrl = await loadImage(cover?.thumbnailPath || cover?.originalPath);
+  const hasBrokenCover = cover && !coverUrl;
   const gallery = await Promise.all(c.gallery.map(async (image) => {
     const url = await loadImage(image.thumbnailPath || image.originalPath);
+    const missing = !url;
     return `
-      <article class="gallery-item">
-        <button class="gallery-thumb" data-action="lightbox" data-id="${image.id}">${url ? `<img src="${url}" alt="${escapeHtml(image.caption || c.title)}" />` : '<span>Missing</span>'}</button>
+      <article class="gallery-item ${missing ? 'is-missing' : ''}">
+        <button class="gallery-thumb" data-action="lightbox" data-id="${image.id}" ${missing ? 'disabled' : ''}>${url ? `<img src="${url}" alt="${escapeHtml(image.caption || c.title)}" />` : '<span>Image missing</span>'}</button>
         <input value="${escapeHtml(image.caption || '')}" data-gallery-field="caption" data-id="${image.id}" placeholder="Caption" />
         <textarea data-gallery-field="notes" data-id="${image.id}" placeholder="Image notes">${escapeHtml(image.notes || '')}</textarea>
         <div class="button-row">
@@ -478,17 +535,18 @@ async function editorView() {
     <div class="editor-backdrop">
       <main class="editor-shell" role="dialog" aria-modal="true" aria-label="Character editor">
         <header class="editor-header">
-          <div class="editor-avatar">${coverUrl ? `<img src="${coverUrl}" alt="" />` : `<span>${escapeHtml(c.title.slice(0, 1).toUpperCase() || 'C')}</span>`}</div>
+          <div class="editor-avatar ${hasBrokenCover ? 'missing-image' : ''}">${coverUrl ? `<img src="${coverUrl}" alt="" />` : `<span>${escapeHtml(c.title.slice(0, 1).toUpperCase() || 'C')}</span>`}</div>
           <div class="editor-title-fields">
             <input class="title-input" value="${escapeHtml(c.title)}" data-field="title" aria-label="Title" />
             <input class="subtitle-input" value="${escapeHtml(c.subtitle)}" data-field="subtitle" placeholder="Subtitle or short description" aria-label="Subtitle" />
-            <span class="save-status">Unsaved changes save when you click Save</span>
+            <span class="save-status" data-status="${state.saveStatus}">${saveStatusText()}</span>
           </div>
           <div class="editor-actions">
             <button class="${c.favorite ? 'active' : ''}" data-action="toggle-draft-bool" data-field="favorite">★</button>
             <button data-action="copy-full">Copy Full</button>
             <button data-action="save-draft" class="primary">Save</button>
             <button data-action="duplicate" data-id="${c.id}">Duplicate</button>
+            <button data-action="toggle-draft-bool" data-field="archived">${c.archived ? 'Unarchive' : 'Archive'}</button>
             <button class="danger" data-action="delete" data-id="${c.id}">Delete</button>
             <button data-action="close-editor" aria-label="Close editor">×</button>
           </div>
@@ -498,7 +556,7 @@ async function editorView() {
             ${editorSection('Overview', `
               <label>Tags${renderChipEditor('tags', c.tags)}</label>
               <label>Best compatible with${renderChipEditor('models', c.compatibleModels)}</label>
-              <label class="checkbox"><input type="checkbox" data-field="archived" ${c.archived ? 'checked' : ''}/> Archived</label>
+              <p class="section-note">${c.archived ? 'Archived characters are hidden from the default grid.' : 'Archive from the header to hide this character without deleting local files.'}</p>
             `)}
             ${editorSection('Scenes', `
               <div class="scene-list">
@@ -568,17 +626,17 @@ function bindEvents() {
     if (target.dataset.field && state.draft) {
       if (target.type === 'checkbox') state.draft[target.dataset.field] = target.checked;
       else state.draft[target.dataset.field] = target.value;
-      state.dirty = true;
+      markDraftDirty();
     }
     if (target.dataset.sceneField && state.draft) {
       const scene = state.draft.scenes.find((item) => item.id === target.dataset.id);
       if (scene) scene[target.dataset.sceneField] = target.value;
-      state.dirty = true;
+      markDraftDirty();
     }
     if (target.dataset.galleryField && state.draft) {
       const image = state.draft.gallery.find((item) => item.id === target.dataset.id);
       if (image) image[target.dataset.galleryField] = target.value;
-      state.dirty = true;
+      markDraftDirty();
     }
   });
 
@@ -631,6 +689,10 @@ function bindEvents() {
     if (action === 'copy-full') await copyText(assemblePrompt(state.draft), 'Copied full character prompt');
     if (action === 'duplicate') await duplicateCharacter(button.dataset.id);
     if (action === 'delete') await deleteCharacter(button.dataset.id);
+    if (action === 'archive') {
+      const character = findCharacter(button.dataset.id);
+      await archiveCharacter(button.dataset.id, !character?.archived);
+    }
     if (action === 'toggle-filter') {
       state.filters[button.dataset.filter] = !state.filters[button.dataset.filter];
       render();
@@ -642,14 +704,14 @@ function bindEvents() {
     }
     if (action === 'toggle-draft-bool') {
       state.draft[button.dataset.field] = !state.draft[button.dataset.field];
-      state.dirty = true;
+      markDraftDirty();
       render();
     }
     if (action === 'add-chip') addChip(button.dataset.kind, button.closest('.chip-editor').querySelector('input').value);
     if (action === 'remove-chip') removeChip(button.dataset.kind, button.dataset.id);
     if (action === 'add-scene') {
       state.draft.scenes.push({ id: uid(), title: '', body: '', tags: [], createdAt: nowIso(), updatedAt: nowIso() });
-      state.dirty = true;
+      markDraftDirty();
       render();
     }
     if (action === 'copy-scene') {
@@ -659,14 +721,14 @@ function bindEvents() {
     if (action === 'duplicate-scene') {
       const scene = state.draft.scenes.find((item) => item.id === button.dataset.id);
       if (scene) state.draft.scenes.push({ ...structuredClone(scene), id: uid(), title: `${scene.title || 'Scene'} Copy`, createdAt: nowIso(), updatedAt: nowIso() });
-      state.dirty = true;
+      markDraftDirty();
       render();
     }
     if (action === 'delete-scene') {
       const ok = await confirmAction('Delete this scene?', 'Delete scene');
       if (ok) {
         state.draft.scenes = state.draft.scenes.filter((scene) => scene.id !== button.dataset.id);
-        state.dirty = true;
+        markDraftDirty();
         render();
       }
     }
@@ -696,14 +758,14 @@ function addChip(kind, rawValue) {
     return;
   }
   target.push(kind === 'tags' ? { id: uid(), name } : { id: uid(), name, notes: '' });
-  state.dirty = true;
+  markDraftDirty();
   render();
 }
 
 function removeChip(kind, id) {
   if (kind === 'tags') state.draft.tags = state.draft.tags.filter((item) => item.id !== id);
   else state.draft.compatibleModels = state.draft.compatibleModels.filter((item) => item.id !== id);
-  state.dirty = true;
+  markDraftDirty();
   render();
 }
 
@@ -718,41 +780,54 @@ async function addImages() {
   });
   const paths = Array.isArray(selected) ? selected : selected ? [selected] : [];
   if (!paths.length) return;
+  let addedCount = 0;
+  let failedCount = 0;
   for (const path of paths) {
     const imageId = uid();
     const extension = path.split('.').pop()?.toLowerCase() || 'jpg';
     const filename = `${imageId}.${extension}`;
     const originalPath = `media/characters/${state.draft.id}/originals/${filename}`;
     const thumbnailPath = `media/characters/${state.draft.id}/thumbnails/${imageId}.jpg`;
-    await tauriInvoke('copy_image_to_app_data', { sourcePath: path, destFilename: originalPath });
     try {
-      await tauriInvoke('generate_thumbnail', { relativePath: originalPath, thumbnailPath, force: true });
-    } catch {
-      toast('Image added without thumbnail');
+      await tauriInvoke('copy_image_to_app_data', { sourcePath: path, destFilename: originalPath });
+      try {
+        await tauriInvoke('generate_thumbnail', { relativePath: originalPath, thumbnailPath, force: true });
+      } catch {
+        toast('Image added without thumbnail');
+      }
+      state.draft.gallery.push({
+        id: imageId,
+        filename,
+        originalPath,
+        thumbnailPath,
+        caption: '',
+        notes: '',
+        isCover: state.draft.gallery.length === 0,
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      });
+      if (!state.draft.previewImageId) state.draft.previewImageId = imageId;
+      addedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      console.error('Could not add image', error);
     }
-    state.draft.gallery.push({
-      id: imageId,
-      filename,
-      originalPath,
-      thumbnailPath,
-      caption: '',
-      notes: '',
-      isCover: state.draft.gallery.length === 0,
-      createdAt: nowIso(),
-      updatedAt: nowIso()
-    });
-    if (!state.draft.previewImageId) state.draft.previewImageId = imageId;
   }
   state.imageCache.clear();
-  state.dirty = true;
-  toast(paths.length === 1 ? 'Image added' : 'Images added');
+  if (addedCount > 0) {
+    markDraftDirty();
+    toast(addedCount === 1 ? 'Image added' : `${addedCount} images added`);
+  }
+  if (failedCount > 0) {
+    toast(`${failedCount} image${failedCount === 1 ? '' : 's'} could not be added`, 'danger');
+  }
   render();
 }
 
 function setCover(id) {
   state.draft.previewImageId = id;
   state.draft.gallery = state.draft.gallery.map((image) => ({ ...image, isCover: image.id === id }));
-  state.dirty = true;
+  markDraftDirty();
   render();
 }
 
@@ -769,7 +844,7 @@ async function removeImage(id) {
   state.draft.gallery = state.draft.gallery.filter((item) => item.id !== id);
   if (state.draft.previewImageId === id) state.draft.previewImageId = state.draft.gallery[0]?.id || null;
   state.imageCache.clear();
-  state.dirty = true;
+  markDraftDirty();
   toast('Image removed');
   render();
 }
