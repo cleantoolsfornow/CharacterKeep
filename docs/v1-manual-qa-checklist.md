@@ -202,3 +202,17 @@ Use a packaged desktop build for this checklist. Start with a known test data di
 - [ ] Press Escape in the editor.
 - [ ] Confirm it closes when there are no unsaved changes.
 - [ ] Confirm Escape triggers unsaved-change protection when edits are pending.
+
+## Post-v1 Feature QA Addendum
+
+- Character-card PNG import: select a valid `chara`/`ccv3` PNG, confirm a character is created, the PNG appears in gallery, and it is cover art.
+- Character-card PNG invalid path: import a normal PNG or malformed metadata PNG and confirm the app does not crash and shows skipped/parse-failure counts.
+- Single-character export: from the editor export Markdown and TXT; confirm private notes are excluded by default and included only when opted in.
+- Single-character ZIP export: export with gallery media, restore into another vault, and confirm media paths and character fields survive.
+- Restore preflight: select a full backup ZIP and confirm the summary appears before local data changes.
+- Restore conflict behavior: restore a modified same-ID character and confirm it imports as a restored copy rather than overwriting existing data.
+- Collections: create, rename, delete, filter by collection, assign a character in the editor, and confirm deleted collections move characters to Unfiled.
+- Bulk actions: select multiple characters and test archive, unarchive, favorite, unfavorite, add tag, move to collection, and confirmed delete.
+- View mode: switch between Cards and List, quit/reopen, and confirm the selected view persists.
+- Help page: open Help and confirm privacy, data folder, gallery, backup/restore, import/export, collections, bulk actions, shortcuts, and support guidance render.
+- Data safety: corrupt a copied test JSON file and confirm the app does not silently delete the original user data during normal restore/import flows.

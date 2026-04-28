@@ -11,6 +11,8 @@ use walkdir::WalkDir;
 use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
 
+mod image_metadata;
+
 fn get_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -99,7 +101,22 @@ fn write_json_file(app: tauri::AppHandle, filename: String, content: String) -> 
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
-    fs::write(&file_path, content).map_err(|e| format!("Failed to write {}: {}", filename, e))
+    if filename.ends_with(".json") && serde_json::from_str::<Value>(&content).is_err() {
+        if file_path.exists() {
+            let broken = file_path.with_extension(format!(
+                "broken-{}",
+                Utc::now().format("%Y%m%d%H%M%S")
+            ));
+            let _ = fs::copy(&file_path, broken);
+        }
+        return Err(format!("Refusing to write invalid JSON to {}", filename));
+    }
+    let temp_path = file_path.with_extension(format!(
+        "tmp-{}",
+        Uuid::new_v4()
+    ));
+    fs::write(&temp_path, content).map_err(|e| format!("Failed to write temp file: {}", e))?;
+    fs::rename(&temp_path, &file_path).map_err(|e| format!("Failed to replace {}: {}", filename, e))
 }
 
 #[tauri::command]
@@ -218,6 +235,30 @@ fn copy_app_data_file(
     Ok(())
 }
 
+#[tauri::command]
+fn write_export_text_file(dest_path: String, content: String) -> Result<(), String> {
+    let dest = validate_user_absolute_path(&dest_path, "Export destination path")?;
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create export directory: {}", e))?;
+    }
+    fs::write(&dest, content)
+        .map_err(|e| format!("Failed to write export file {}: {}", dest.display(), e))
+}
+
+#[tauri::command]
+fn extract_character_card_from_path(absolute_path: String) -> Result<image_metadata::CharacterCardMetadata, String> {
+    let file_path = validate_external_image_source_path(&absolute_path)?;
+    let extension = file_path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    if extension != "png" {
+        return Err("Character card import supports PNG files only".to_string());
+    }
+    image_metadata::extract_character_card_metadata(file_path)
+}
+
 fn validate_zip_entry_path(path: &str) -> Result<(), String> {
     if path.is_empty() {
         return Err("ZIP entry path cannot be empty".to_string());
@@ -326,6 +367,28 @@ struct RestoreSummary {
     conflicts: usize,
     media_files: usize,
     missing_media: usize,
+    collections_imported: usize,
+    collections_skipped: usize,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PreflightSummary {
+    valid: bool,
+    app: Option<String>,
+    export_type: String,
+    schema_version: Option<u64>,
+    created_at: Option<String>,
+    character_count: usize,
+    media_count: usize,
+    import_count: usize,
+    skipped_duplicates: usize,
+    conflicts: usize,
+    missing_media: usize,
+    collection_count: usize,
+    characters: Vec<String>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -446,6 +509,35 @@ fn plan_restore_merge(
     }
 }
 
+fn collection_name(value: &Value) -> Option<String> {
+    value
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+}
+
+fn merge_collections(current: Vec<Value>, incoming: Vec<Value>, summary: &mut RestoreSummary) -> Vec<Value> {
+    let mut merged = current;
+    let mut ids = merged.iter().filter_map(value_id).collect::<HashSet<_>>();
+    let mut names = merged.iter().filter_map(collection_name).collect::<HashSet<_>>();
+    for collection in incoming {
+        let id = value_id(&collection).unwrap_or_else(|| Uuid::new_v4().to_string());
+        let name = collection_name(&collection);
+        if ids.contains(&id) || name.as_ref().is_some_and(|n| names.contains(n)) {
+            summary.collections_skipped += 1;
+            continue;
+        }
+        ids.insert(id);
+        if let Some(name) = name {
+            names.insert(name);
+        }
+        merged.push(collection);
+        summary.collections_imported += 1;
+    }
+    merged
+}
+
 #[tauri::command]
 fn create_characterkeep_backup_zip(app: tauri::AppHandle, dest_path: String) -> Result<(), String> {
     let data_dir = ensure_data_dir(&app)?;
@@ -459,8 +551,10 @@ fn create_characterkeep_backup_zip(app: tauri::AppHandle, dest_path: String) -> 
     }
 
     let characters = read_json_or_default(&data_dir.join("data/characters.json"), json!([]))?;
+    let collections = read_json_or_default(&data_dir.join("data/collections.json"), json!([]))?;
     let settings = read_json_or_default(&data_dir.join("data/settings.json"), json!({}))?;
     let character_count = characters.as_array().map(|items| items.len()).unwrap_or(0);
+    let collection_count = collections.as_array().map(|items| items.len()).unwrap_or(0);
     let media_root = data_dir.join("media");
     let media_count = if media_root.exists() {
         WalkDir::new(&media_root)
@@ -477,6 +571,7 @@ fn create_characterkeep_backup_zip(app: tauri::AppHandle, dest_path: String) -> 
         "backupSchemaVersion": 1,
         "createdAt": Utc::now().to_rfc3339(),
         "characterCount": character_count,
+        "collectionCount": collection_count,
         "mediaCount": media_count
     });
 
@@ -489,6 +584,7 @@ fn create_characterkeep_backup_zip(app: tauri::AppHandle, dest_path: String) -> 
 
     write_json_entry(&mut writer, "manifest.json", &manifest, options)?;
     write_json_entry(&mut writer, "settings.json", &settings, options)?;
+    write_json_entry(&mut writer, "collections.json", &collections, options)?;
     if let Some(items) = characters.as_array() {
         for character in items {
             let id = value_id(character).unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -530,19 +626,18 @@ fn create_characterkeep_backup_zip(app: tauri::AppHandle, dest_path: String) -> 
     Ok(())
 }
 
-#[tauri::command]
-fn restore_characterkeep_backup_zip(
-    app: tauri::AppHandle,
-    source_path: String,
-) -> Result<RestoreSummary, String> {
-    let source = validate_user_absolute_path(&source_path, "Backup source path")?;
+type BackupRead = (Value, Vec<Value>, Vec<Value>, HashMap<String, Vec<u8>>, HashSet<String>);
+
+fn read_characterkeep_zip(source_path: &str) -> Result<BackupRead, String> {
+    let source = validate_user_absolute_path(source_path, "Backup source path")?;
     let file = fs::File::open(&source).map_err(|e| format!("Failed to open backup ZIP: {}", e))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| format!("Invalid backup ZIP: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Invalid backup ZIP: {}", e))?;
 
     let mut manifest: Option<Value> = None;
     let mut incoming = Vec::<Value>::new();
+    let mut incoming_collections = Vec::<Value>::new();
     let mut media = HashMap::<String, Vec<u8>>::new();
+    let mut media_names = HashSet::<String>::new();
 
     for index in 0..archive.len() {
         let mut file = archive
@@ -560,29 +655,81 @@ fn restore_characterkeep_backup_zip(
         file.read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read backup entry {}: {}", name, e))?;
         if name == "manifest.json" {
-            manifest = Some(
-                serde_json::from_slice(&bytes).map_err(|e| format!("Invalid manifest: {}", e))?,
-            );
+            manifest = Some(serde_json::from_slice(&bytes).map_err(|e| format!("Invalid manifest: {}", e))?);
+        } else if name == "character.json" {
+            incoming.push(serde_json::from_slice(&bytes).map_err(|e| format!("Invalid character JSON: {}", e))?);
         } else if name.starts_with("characters/") && name.ends_with(".json") {
-            incoming.push(
-                serde_json::from_slice(&bytes)
-                    .map_err(|e| format!("Invalid character JSON: {}", e))?,
-            );
+            incoming.push(serde_json::from_slice(&bytes).map_err(|e| format!("Invalid character JSON: {}", e))?);
+        } else if name == "collections.json" {
+            let value: Value = serde_json::from_slice(&bytes).map_err(|e| format!("Invalid collections JSON: {}", e))?;
+            incoming_collections = value.as_array().cloned().unwrap_or_default();
         } else if name.starts_with("media/") {
             validate_zip_entry_path(&name)?;
+            media_names.insert(name.clone());
             media.insert(name, bytes);
         }
     }
 
     let manifest = manifest.ok_or_else(|| "This backup is missing manifest.json".to_string())?;
     validate_characterkeep_manifest(&manifest)?;
+    Ok((manifest, incoming, incoming_collections, media, media_names))
+}
+
+#[tauri::command]
+fn preflight_characterkeep_backup_zip(app: tauri::AppHandle, source_path: String) -> Result<PreflightSummary, String> {
+    let data_dir = ensure_data_dir(&app)?;
+    match read_characterkeep_zip(&source_path) {
+        Ok((manifest, incoming, incoming_collections, _media, media_names)) => {
+            let current_value = read_json_or_default(&data_dir.join("data/characters.json"), json!([]))?;
+            let current = current_value.as_array().cloned().unwrap_or_default();
+            let plan = plan_restore_merge(current, incoming.clone(), &media_names);
+            let export_type = manifest
+                .get("exportType")
+                .and_then(|v| v.as_str())
+                .unwrap_or("backup")
+                .to_string();
+            Ok(PreflightSummary {
+                valid: true,
+                app: manifest.get("app").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                export_type,
+                schema_version: manifest.get("backupSchemaVersion").or_else(|| manifest.get("schemaVersion")).and_then(|v| v.as_u64()),
+                created_at: manifest.get("createdAt").or_else(|| manifest.get("exportedAt")).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                character_count: incoming.len(),
+                media_count: media_names.len(),
+                import_count: plan.summary.imported,
+                skipped_duplicates: plan.summary.skipped,
+                conflicts: plan.summary.conflicts,
+                missing_media: plan.summary.missing_media,
+                collection_count: incoming_collections.len(),
+                characters: incoming.iter().filter_map(|c| c.get("title").and_then(|v| v.as_str()).map(|s| s.to_string())).collect(),
+                warnings: Vec::new(),
+                errors: Vec::new(),
+            })
+        }
+        Err(error) => Ok(PreflightSummary {
+            valid: false,
+            errors: vec![error],
+            ..Default::default()
+        }),
+    }
+}
+
+#[tauri::command]
+fn restore_characterkeep_backup_zip(
+    app: tauri::AppHandle,
+    source_path: String,
+) -> Result<RestoreSummary, String> {
+    let (_manifest, incoming, incoming_collections, media, media_keys) = read_characterkeep_zip(&source_path)?;
 
     let data_dir = ensure_data_dir(&app)?;
     let characters_path = data_dir.join("data/characters.json");
+    let collections_path = data_dir.join("data/collections.json");
     let current_value = read_json_or_default(&characters_path, json!([]))?;
     let current = current_value.as_array().cloned().unwrap_or_default();
-    let media_keys = media.keys().cloned().collect::<HashSet<_>>();
-    let plan = plan_restore_merge(current, incoming, &media_keys);
+    let mut plan = plan_restore_merge(current, incoming, &media_keys);
+    let current_collections_value = read_json_or_default(&collections_path, json!([]))?;
+    let current_collections = current_collections_value.as_array().cloned().unwrap_or_default();
+    let merged_collections = merge_collections(current_collections, incoming_collections, &mut plan.summary);
 
     for copy_plan in &plan.media_copies {
         if let Some(bytes) = media.get(&copy_plan.source_path) {
@@ -600,7 +747,77 @@ fn restore_characterkeep_backup_zip(
         serde_json::to_string_pretty(&plan.characters).map_err(|e| e.to_string())?,
     )
     .map_err(|e| format!("Failed to save restored characters: {}", e))?;
+    fs::write(
+        &collections_path,
+        serde_json::to_string_pretty(&merged_collections).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("Failed to save restored collections: {}", e))?;
     Ok(plan.summary)
+}
+
+#[tauri::command]
+fn export_characterkeep_character_zip(
+    app: tauri::AppHandle,
+    dest_path: String,
+    character: Value,
+    collection: Option<Value>,
+    include_gallery_media: bool,
+    markdown: Option<String>,
+    text: Option<String>,
+) -> Result<(), String> {
+    let data_dir = ensure_data_dir(&app)?;
+    let destination = validate_user_absolute_path(&dest_path, "Export destination path")?;
+    if destination.starts_with(&data_dir) {
+        return Err("Please save the export outside the app data directory".to_string());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create export directory: {}", e))?;
+    }
+
+    let media_paths = expected_media_paths(&character);
+    let manifest = json!({
+        "app": "CharacterKeep",
+        "exportType": "character",
+        "backupSchemaVersion": 1,
+        "schemaVersion": 1,
+        "exportedAt": Utc::now().to_rfc3339(),
+        "characterCount": 1,
+        "mediaCount": if include_gallery_media { media_paths.len() } else { 0 }
+    });
+
+    let file = fs::File::create(&destination).map_err(|e| format!("Failed to create ZIP: {}", e))?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+
+    write_json_entry(&mut writer, "manifest.json", &manifest, options)?;
+    write_json_entry(&mut writer, "character.json", &character, options)?;
+    if let Some(collection) = collection {
+        write_json_entry(&mut writer, "collections.json", &json!([collection]), options)?;
+    }
+    if let Some(markdown) = markdown {
+        writer.start_file("portable.md", options).map_err(|e| format!("Failed to add Markdown export: {}", e))?;
+        writer.write_all(markdown.as_bytes()).map_err(|e| format!("Failed to write Markdown export: {}", e))?;
+    }
+    if let Some(text) = text {
+        writer.start_file("portable.txt", options).map_err(|e| format!("Failed to add TXT export: {}", e))?;
+        writer.write_all(text.as_bytes()).map_err(|e| format!("Failed to write TXT export: {}", e))?;
+    }
+    if include_gallery_media {
+        for relative_path in media_paths {
+            validate_zip_entry_path(&relative_path)?;
+            let source = data_dir.join(resolve_relative_path(&relative_path)?);
+            if !source.exists() || !source.is_file() {
+                continue;
+            }
+            writer.start_file(&relative_path, options).map_err(|e| format!("Failed to add media: {}", e))?;
+            let mut input = fs::File::open(source).map_err(|e| format!("Failed to read media: {}", e))?;
+            copy(&mut input, &mut writer).map_err(|e| format!("Failed to write media: {}", e))?;
+        }
+    }
+    writer.finish().map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -620,7 +837,11 @@ pub fn run() {
             generate_thumbnail,
             delete_path,
             copy_app_data_file,
+            write_export_text_file,
+            extract_character_card_from_path,
             create_characterkeep_backup_zip,
+            preflight_characterkeep_backup_zip,
+            export_characterkeep_character_zip,
             restore_characterkeep_backup_zip
         ])
         .run(tauri::generate_context!())
@@ -802,5 +1023,28 @@ mod tests {
             .characters
             .iter()
             .any(|value| value.get("title").and_then(|title| title.as_str()) == Some("Incoming")));
+    }
+
+    #[test]
+    fn collections_merge_preserves_existing_and_skips_duplicate_names() {
+        let current = vec![json!({
+            "id": "collection-1",
+            "name": "Main Cast",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        })];
+        let incoming = vec![
+            json!({ "id": "collection-2", "name": "Main Cast" }),
+            json!({ "id": "collection-3", "name": "Side Cast" })
+        ];
+        let mut summary = RestoreSummary::default();
+        let merged = merge_collections(current, incoming, &mut summary);
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(summary.collections_imported, 1);
+        assert_eq!(summary.collections_skipped, 1);
+        assert!(merged.iter().any(|collection| {
+            collection.get("name").and_then(|name| name.as_str()) == Some("Side Cast")
+        }));
     }
 }
