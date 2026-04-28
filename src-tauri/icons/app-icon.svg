@@ -1,0 +1,14 @@
+<svg width="1024" height="1024" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="2" width="20" height="20" rx="6" fill="url(#logo-gradient)" />
+  <!-- Custom ArtifactKeep Icon -->
+  <rect x="5.5" y="6" width="13" height="12" rx="2.5" stroke="white" stroke-width="1.2" />
+  <line x1="8" y1="9" x2="16" y2="9" stroke="white" stroke-width="1.2" stroke-linecap="round" />
+  <line x1="8" y1="12" x2="14" y2="12" stroke="white" stroke-width="1.2" stroke-linecap="round" />
+  <line x1="8" y1="15" x2="12" y2="15" stroke="white" stroke-width="1.2" stroke-linecap="round" />
+  <defs>
+    <linearGradient id="logo-gradient" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#007AFF" />
+      <stop offset="1" stop-color="#5856D6" />
+    </linearGradient>
+  </defs>
+</svg>
