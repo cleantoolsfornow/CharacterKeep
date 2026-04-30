@@ -211,7 +211,7 @@ Use a packaged desktop build for this checklist. Start with a known test data di
 - Single-character ZIP export: export with gallery media, restore into another vault, and confirm media paths and character fields survive.
 - Restore preflight: select a full backup ZIP and confirm the summary appears before local data changes.
 - Restore conflict behavior: restore a modified same-ID character and confirm it imports as a restored copy rather than overwriting existing data.
-- Collections: create, rename, delete, filter by collection, assign a character in the editor, and confirm deleted collections move characters to Unfiled.
+- Collections: create, rename, delete, filter by collection, assign a character in the editor, and confirm deleted collections move characters to No Collection.
 - Bulk actions: select multiple characters and test archive, unarchive, favorite, unfavorite, add tag, move to collection, and confirmed delete.
 - View mode: switch between Cards and List, quit/reopen, and confirm the selected view persists.
 - Help page: open Help and confirm privacy, data folder, gallery, backup/restore, import/export, collections, bulk actions, shortcuts, and support guidance render.

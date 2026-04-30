@@ -74,7 +74,7 @@ Private notes are excluded by default and must be opted in. ZIP exports can incl
 
 ## Collections, Bulk Actions, And Views
 
-Collections organize characters without turning the app into a file manager. Deleting a collection does not delete characters; assigned characters become Unfiled.
+Collections organize characters without turning the app into a file manager. Deleting a collection does not delete characters; assigned characters become No Collection.
 
 The character grid supports multi-select bulk actions for archive, unarchive, favorite, unfavorite, add tag, move to collection, and carefully confirmed permanent delete. Card view remains the default, and List view can be selected from the toolbar; the view mode persists in settings.
 

@@ -24,7 +24,7 @@ The editor Export button can save a CharacterKeep backup ZIP, Markdown, or TXT. 
 
 ## Collections
 
-Collections are lightweight groups for characters. Deleting a collection does not delete characters; assigned characters move back to Unfiled. Use the sidebar to view All Characters, Unfiled, or a specific collection.
+Collections are lightweight groups for characters. Deleting a collection does not delete characters; assigned characters move back to No Collection. Use the sidebar to view All Characters, No Collection, or a specific collection.
 
 ## Bulk Actions
 

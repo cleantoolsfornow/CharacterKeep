@@ -954,10 +954,16 @@ h2 {
   text-transform: uppercase;
 }
 
-.sidebar-label button {
-  min-height: 26px;
+.sidebar-label .mini-add {
+  display: grid;
+  place-items: center;
+  min-height: 28px;
   width: 28px;
   padding: 0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .nav-subitem {
@@ -976,6 +982,30 @@ h2 {
   border-radius: 8px;
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   padding: 16px;
+}
+
+.filter-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 74%, transparent);
+  color: var(--muted);
+  padding: 8px 12px;
+  font-size: 0.86rem;
+}
+
+.filter-notice span {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.filter-notice p {
+  margin: 0;
 }
 
 .collection-header p {
@@ -1122,8 +1152,10 @@ h2 {
 
 @media (max-width: 680px) {
   .collection-header,
-  .bulk-toolbar {
+  .bulk-toolbar,
+  .filter-notice {
     display: grid;
+    width: auto;
   }
 
   .list-wrap {
